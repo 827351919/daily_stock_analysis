@@ -863,9 +863,19 @@ class PriceMonitorService:
             return True
 
 
-# 便捷函数
+# 便捷函数 - 使用延迟初始化
+_get_monitor_service_instance = None
+
 def get_monitor_service() -> PriceMonitorService:
-    """获取监控服务实例"""
-    db = DatabaseManager.get_instance()
-    config = get_config()
-    return PriceMonitorService(db, config)
+    """
+    获取监控服务实例（延迟初始化）
+
+    第一次调用时创建实例，后续调用返回缓存的实例。
+    避免在模块导入时初始化 DatabaseManager。
+    """
+    global _get_monitor_service_instance
+    if _get_monitor_service_instance is None:
+        db = DatabaseManager.get_instance()
+        config = get_config()
+        _get_monitor_service_instance = PriceMonitorService(db, config)
+    return _get_monitor_service_instance
