@@ -153,7 +153,7 @@ async def get_group_items(
         raise HTTPException(status_code=404, detail="监控组不存在")
 
     items = service.get_group_items(group_id)
-    return [MonitorItemSnapshot(**item.to_dict()) for item in items]
+    return [item.to_dict() for item in items]
 
 
 @router.get("/groups/{group_id}/snapshot", response_model=MonitorSnapshotResponse)
