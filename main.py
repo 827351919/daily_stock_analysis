@@ -578,6 +578,24 @@ def main() -> int:
         logger.info(f"Web 服务运行中: http://{args.host}:{args.port}")
         logger.info("通过 /api/v1/analysis/analyze 接口触发分析")
         logger.info(f"API 文档: http://{args.host}:{args.port}/docs")
+
+        # 启动价格缓存后台更新器
+        try:
+            import asyncio
+            from src.storage import DatabaseManager
+            from src.services.price_monitor_service import PriceMonitorService
+            from src.auto_trade.monitor_worker import MonitorPriceUpdater
+
+            db = DatabaseManager.get_instance()
+            service = PriceMonitorService(db, config)
+            price_updater = MonitorPriceUpdater(service)
+
+            # 在后台启动更新器
+            asyncio.create_task(price_updater.run(interval_seconds=60))
+            logger.info("价格缓存后台更新器已启动（更新间隔: 60秒）")
+        except Exception as e:
+            logger.warning(f"价格缓存更新器启动失败（已忽略）: {e}")
+
         logger.info("按 Ctrl+C 退出...")
         try:
             while True:

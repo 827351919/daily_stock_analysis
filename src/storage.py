@@ -620,6 +620,68 @@ class LLMUsage(Base):
     called_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class PriceMonitorGroup(Base):
+    """价格监控组 - 对应前端一个Tab页"""
+
+    __tablename__ = 'price_monitor_groups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(64), nullable=False)
+    description = Column(String(255))
+    is_default = Column(Boolean, default=False)
+    owner_id = Column(String(64), index=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 关联监控项
+    items = relationship("PriceMonitorItem", back_populates="group", cascade="all, delete-orphan")
+
+
+class PriceMonitorItem(Base):
+    """监控项 - 单只股票的监控配置"""
+
+    __tablename__ = 'price_monitor_items'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('price_monitor_groups.id'), nullable=False, index=True)
+    code = Column(String(16), nullable=False, index=True)
+    name = Column(String(64))
+
+    # 监控点位
+    ideal_buy = Column(Float)
+    secondary_buy = Column(Float)
+    stop_loss = Column(Float)
+    take_profit = Column(Float)
+
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 实时价格缓存（后台定时更新）
+    current_price = Column(Float)
+    change_pct = Column(Float)
+    last_price_update = Column(DateTime)
+
+    group = relationship("PriceMonitorGroup", back_populates="items")
+    alerts = relationship("PriceMonitorAlert", back_populates="item", cascade="all, delete-orphan")
+
+
+class PriceMonitorAlert(Base):
+    """告警记录 - 触发点位时创建"""
+
+    __tablename__ = 'price_monitor_alerts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    item_id = Column(Integer, ForeignKey('price_monitor_items.id'), nullable=False, index=True)
+    trigger_type = Column(String(16), nullable=False)  # IDEAL_BUY, SECONDARY_BUY, STOP_LOSS, TAKE_PROFIT
+    trigger_price = Column(Float, nullable=False)
+    alert_time = Column(DateTime, default=datetime.now)
+    is_sent = Column(Boolean, default=False)
+    sent_at = Column(DateTime)
+
+    item = relationship("PriceMonitorItem", back_populates="alerts")
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -671,6 +733,9 @@ class DatabaseManager:
         # 创建所有表
         Base.metadata.create_all(self._engine)
 
+        # 自动迁移：添加缺失的列
+        self._run_migrations()
+
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
 
@@ -709,6 +774,59 @@ class DatabaseManager:
                 logger.debug("数据库引擎已清理")
         except Exception as e:
             logger.warning(f"清理数据库引擎时出错: {e}")
+
+    def _run_migrations(self):
+        """
+        自动迁移：检查并添加缺失的列
+
+        用于在表结构更新时自动添加新列，而不丢失现有数据。
+        """
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self._engine)
+
+        # 定义需要迁移的表和列
+        migrations = {
+            'price_monitor_items': [
+                ('current_price', 'FLOAT'),
+                ('change_pct', 'FLOAT'),
+                ('last_price_update', 'DATETIME'),
+            ],
+        }
+
+        logger.info("开始数据库自动迁移检查...")
+
+        with self._engine.connect() as conn:
+            for table_name, columns in migrations.items():
+                # 检查表是否存在
+                if not inspector.has_table(table_name):
+                    logger.warning(f"迁移跳过: 表 {table_name} 不存在（将由 create_all 创建）")
+                    continue
+
+                # 获取现有列
+                try:
+                    existing_columns_info = inspector.get_columns(table_name)
+                    existing_columns = {col['name'] for col in existing_columns_info}
+                    logger.debug(f"表 {table_name} 现有列: {existing_columns}")
+                except Exception as e:
+                    logger.error(f"获取表 {table_name} 列信息失败: {e}")
+                    continue
+
+                for col_name, col_type in columns:
+                    if col_name not in existing_columns:
+                        try:
+                            # 添加新列
+                            sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"
+                            logger.info(f"执行迁移 SQL: {sql}")
+                            conn.execute(text(sql))
+                            conn.commit()
+                            logger.info(f"自动迁移成功: 表 {table_name} 添加列 {col_name}")
+                        except Exception as e:
+                            logger.error(f"自动迁移失败 {table_name}.{col_name}: {e}")
+                    else:
+                        logger.debug(f"列 {table_name}.{col_name} 已存在，跳过")
+
+        logger.info("数据库自动迁移检查完成")
     
     def get_session(self) -> Session:
         """
