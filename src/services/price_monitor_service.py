@@ -99,6 +99,11 @@ class MonitorItemSnapshot:
 class PriceMonitorService:
     """价格监控服务 - 管理监控组、执行价格检查"""
 
+    # 美股/港股缓存相关配置
+    _us_hk_cache: Dict[str, UnifiedRealtimeQuote] = {}
+    _us_hk_cache_time: Optional[datetime] = None
+    _us_hk_cache_ttl_minutes = 15  # 缓存15分钟
+
     def __init__(self, db: DatabaseManager, config: Config):
         self.db = db
         self.config = config
@@ -549,16 +554,82 @@ class PriceMonitorService:
             return snapshots
 
     def _get_realtime_quotes_batch(self, codes: List[str]) -> Dict[str, UnifiedRealtimeQuote]:
-        """批量获取实时行情"""
+        """
+        批量获取实时行情
+
+        对A股实时查询，对美股/港股限速到15分钟查询一次（避免超时）
+        """
         quotes = {}
+
+        # 区分A股和美股/港股
+        a_shares = []
+        us_hk_shares = []
+
         for code in codes:
+            if self._is_us_or_hk_stock(code):
+                us_hk_shares.append(code)
+            else:
+                a_shares.append(code)
+
+        # A股：实时查询
+        for code in a_shares:
             try:
                 quote = self.data_manager.get_realtime_quote(code)
                 if quote:
                     quotes[code] = quote
             except Exception as e:
                 logger.warning(f"获取 {code} 行情失败: {e}")
+
+        # 美股/港股：检查缓存是否有效
+        now = datetime.now()
+        cache_valid = (
+            PriceMonitorService._us_hk_cache_time is not None
+            and (now - PriceMonitorService._us_hk_cache_time).total_seconds() < PriceMonitorService._us_hk_cache_ttl_minutes * 60
+        )
+
+        if cache_valid:
+            # 使用缓存数据
+            logger.info(f"使用美股/港股缓存数据（{len(PriceMonitorService._us_hk_cache)} 只，缓存于 {PriceMonitorService._us_hk_cache_time.strftime('%H:%M:%S')}）")
+            for code in us_hk_shares:
+                if code in PriceMonitorService._us_hk_cache:
+                    quotes[code] = PriceMonitorService._us_hk_cache[code]
+                else:
+                    logger.warning(f"{code} 不在美股/港股缓存中，跳过查询")
+        else:
+            # 缓存过期或不存在，重新查询所有美股/港股
+            logger.info(f"美股/港股缓存过期或不存在，重新查询 {len(us_hk_shares)} 只股票")
+            new_cache = {}
+            for code in us_hk_shares:
+                try:
+                    quote = self.data_manager.get_realtime_quote(code)
+                    if quote:
+                        quotes[code] = quote
+                        new_cache[code] = quote
+                except Exception as e:
+                    logger.warning(f"获取 {code} 行情失败: {e}")
+            # 更新缓存
+            if new_cache:
+                PriceMonitorService._us_hk_cache = new_cache
+                PriceMonitorService._us_hk_cache_time = now
+                logger.info(f"更新美股/港股缓存完成，共 {len(new_cache)} 只")
+
         return quotes
+
+    def _is_us_or_hk_stock(self, code: str) -> bool:
+        """
+        判断是否为美股或港股
+
+        A股：6位数字代码（如 000001, 600000, 300001）
+        美股：纯字母代码（如 AAPL, TSLA, MSFT）
+        港股：数字代码但通常带HK前缀，或者是5位数字（如 00700, 03690）
+
+        这里简单判断：非纯数字代码视为美股/港股
+        """
+        if not code:
+            return False
+        code = code.strip().upper()
+        # 如果包含非数字字符（字母或其他），视为美股/港股
+        return not code.isdigit()
 
     def update_price_cache(self, group_id: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -895,7 +966,9 @@ def get_monitor_service() -> PriceMonitorService:
     """
     global _get_monitor_service_instance
     if _get_monitor_service_instance is None:
-        db = DatabaseManager.get_instance()
+        # 使用 DatabaseManager() 直接初始化，确保 __init__ 被调用
+        # 而不是使用 get_instance()，因为后者可能返回未初始化的单例
+        db = DatabaseManager()
         config = get_config()
         _get_monitor_service_instance = PriceMonitorService(db, config)
     return _get_monitor_service_instance

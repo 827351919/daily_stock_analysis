@@ -545,6 +545,7 @@ export default function MonitorPage(): React.ReactElement {
                     <th style={{ padding: '12px', textAlign: 'left', color: '#888', fontSize: '14px' }}>名称</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: '#888', fontSize: '14px' }}>现价</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: '#888', fontSize: '14px' }}>理想买入</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: '#888', fontSize: '14px' }}>次选买入</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: '#888', fontSize: '14px' }}>止损</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: '#888', fontSize: '14px' }}>目标</th>
                     <th style={{ padding: '12px', textAlign: 'center', color: '#888', fontSize: '14px' }}>距离</th>
@@ -587,6 +588,9 @@ export default function MonitorPage(): React.ReactElement {
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
                         {item.idealBuy?.toFixed(2) ?? '--'}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
+                        {item.secondaryBuy?.toFixed(2) ?? '--'}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
                         {item.stopLoss?.toFixed(2) ?? '--'}
