@@ -137,7 +137,7 @@ async def sync_watchlist(
 
 # ========== 监控组快照 ==========
 
-@router.get("/groups/{group_id}/items", response_model=List[MonitorItemSnapshot])
+@router.get("/groups/{group_id}/items")
 async def get_group_items(
     group_id: int,
     service: PriceMonitorService = Depends(get_monitor_service),

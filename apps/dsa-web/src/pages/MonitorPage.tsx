@@ -89,7 +89,7 @@ export default function MonitorPage(): React.ReactElement {
 
     setLoading(true);
     try {
-      // 直接从数据库读取缓存的价格（极速响应，不等待实时行情）
+      // 从数据库缓存读取价格（极速响应）
       const items = await monitorApi.getGroupItems(activeGroupId);
       setSnapshot(items);
       setLastRefresh(new Date());

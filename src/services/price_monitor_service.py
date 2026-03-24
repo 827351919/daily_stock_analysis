@@ -478,6 +478,7 @@ class PriceMonitorService:
             ).scalars().all()
 
             snapshots = []
+            has_price_count = 0
             for item in items:
                 # 获取该股票最近触发的告警类型
                 triggered = self._get_recent_triggered_types(session, item.id)
@@ -496,8 +497,11 @@ class PriceMonitorService:
                     is_active=item.is_active,
                     last_check_time=item.last_price_update.isoformat() if item.last_price_update else None,
                 )
+                if item.current_price is not None:
+                    has_price_count += 1
                 snapshots.append(snapshot)
 
+            logger.info(f"[get_group_items] 读取 group_id={group_id}，共 {len(items)} 只，{has_price_count} 只有缓存价格")
             return snapshots
 
     def get_group_snapshot(self, group_id: int) -> List[MonitorItemSnapshot]:
@@ -642,16 +646,31 @@ class PriceMonitorService:
             items = session.execute(query).scalars().all()
 
             if not items:
+                logger.info(f"[check_and_alert] 未找到监控项，group_id={group_id}")
                 return []
+
+            logger.info(f"[check_and_alert] 开始检查 {len(items)} 只股票的监控项")
 
             # 批量获取实时价格
             codes = [item.code for item in items]
             quotes = self._get_realtime_quotes_batch(codes)
 
+            logger.info(f"[check_and_alert] 获取到 {len(quotes)} 只股票的实时行情")
+
+            updated_count = 0
             for item in items:
                 quote = quotes.get(item.code)
                 if not quote:
+                    logger.warning(f"[check_and_alert] 未获取到 {item.code} 的实时行情")
                     continue
+
+                # 更新价格缓存（无论是否触发告警都更新）
+                item.current_price = quote.price
+                item.change_pct = quote.change_pct
+                item.last_price_update = datetime.now()
+                updated_count += 1
+
+                logger.debug(f"[check_and_alert] 更新 {item.code} 价格缓存: price={quote.price}, change_pct={quote.change_pct}")
 
                 # 获取最近已触发类型
                 triggered_types = self._get_recent_triggered_types(session, item.id)
@@ -685,6 +704,7 @@ class PriceMonitorService:
                     })
 
             session.commit()
+            logger.info(f"[check_and_alert] 完成，更新了 {updated_count} 只股票的价格缓存，触发 {len(triggered_alerts)} 条告警")
 
         return triggered_alerts
 
