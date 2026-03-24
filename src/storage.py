@@ -45,6 +45,7 @@ from sqlalchemy.orm import (
     declarative_base,
     sessionmaker,
     Session,
+    relationship,
 )
 from sqlalchemy.exc import IntegrityError
 
