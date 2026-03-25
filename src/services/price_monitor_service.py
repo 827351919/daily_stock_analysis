@@ -601,10 +601,20 @@ class PriceMonitorService:
             new_cache = {}
             for code in us_hk_shares:
                 try:
-                    quote = self.data_manager.get_realtime_quote(code)
+                    # 港股代码（5位以0开头）需要添加 .HK 后缀
+                    query_code = code
+                    if len(code) == 5 and code.startswith('0') and code.isdigit():
+                        query_code = f"{code}.HK"
+                        logger.debug(f"转换港股代码: {code} -> {query_code}")
+
+                    quote = self.data_manager.get_realtime_quote(query_code)
                     if quote:
+                        # 保持原始代码作为 key
                         quotes[code] = quote
                         new_cache[code] = quote
+                        logger.info(f"获取 {code} 行情成功: price={quote.price}, change_pct={quote.change_pct}")
+                    else:
+                        logger.warning(f"获取 {code} 行情返回空数据")
                 except Exception as e:
                     logger.warning(f"获取 {code} 行情失败: {e}")
             # 更新缓存
@@ -612,6 +622,8 @@ class PriceMonitorService:
                 PriceMonitorService._us_hk_cache = new_cache
                 PriceMonitorService._us_hk_cache_time = now
                 logger.info(f"更新美股/港股缓存完成，共 {len(new_cache)} 只")
+            else:
+                logger.warning("美股/港股缓存更新失败，所有查询都返回空")
 
         return quotes
 
