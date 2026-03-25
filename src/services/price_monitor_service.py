@@ -620,16 +620,24 @@ class PriceMonitorService:
         判断是否为美股或港股
 
         A股：6位数字代码（如 000001, 600000, 300001）
-        美股：纯字母代码（如 AAPL, TSLA, MSFT）
-        港股：数字代码但通常带HK前缀，或者是5位数字（如 00700, 03690）
-
-        这里简单判断：非纯数字代码视为美股/港股
+        美股：包含字母的代码（如 AAPL, TSLA, MSFT）
+        港股：5位数字代码（如 00700, 01810）
         """
         if not code:
             return False
         code = code.strip().upper()
-        # 如果包含非数字字符（字母或其他），视为美股/港股
-        return not code.isdigit()
+
+        # 如果包含非数字字符，是美股
+        if not code.isdigit():
+            return True
+
+        # 纯数字情况下，A股是6位，港股通常是5位（如00700）
+        # 5位且以0开头的数字代码，视为港股
+        if len(code) == 5 and code.startswith('0'):
+            return True
+
+        # 其他情况（6位数字），视为A股
+        return False
 
     def update_price_cache(self, group_id: Optional[int] = None) -> Dict[str, Any]:
         """
